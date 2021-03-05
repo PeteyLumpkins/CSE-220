@@ -34,8 +34,32 @@ done_1:
 
 #---------------------------------------------------------------------------------------#
 
-stack_push:
-  jr $ra
+stack_push:                       # a0 = element, $a1 = top, $a2 = base address
+
+  addi $sp, $sp, -4               # allocate space on stack frame
+  sw $s0, 0($sp)                  # save $s0 on the stack
+
+  li $s0, 2000                    # the capacity of the stack is 500 elements that 
+  beq $a1, $s0, stack_overflow                  # each take up 4 bytes -> 500 * 4 = 2000
+
+  add $a2, $a2, $a1               # increment base address to the top of the stack
+  sw $a0, 0($a2)                  # then store our value at the top of the stack
+
+  addi $v0, $a1, 4                # we want to return the top of the stack + 4, to give   
+  j stack_push_done               # us the new top of the stack
+
+
+stack_overflow:
+  li $v0, -1
+
+stack_push_done:
+
+  lw $s0, 0($sp)                  # restore $s0 from the stack
+  addi $sp, $sp, 4                # adjust top of the stack
+
+  jr $ra                          # return
+  
+#---------------------------------------------------------------------------------------#
 
 stack_peek:
   jr $ra
