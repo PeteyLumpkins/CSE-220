@@ -79,7 +79,38 @@ done_2:
 #---------------------------------------------------------------------------------------#
 
 op_precedence:
+
+  addi $sp, $sp, -4           # make space on the stack for $s0
+  sw $s0, 0($sp)
+
+  li $s0, 42                     # if multiplication -> return 2 (higher prec)
+  beq $a0, $s0, high_prec 
+  li $s0, 47                     # if division -> return 2 (higher prec)
+  beq $a0, $s0, high_prec
+  li $s0, 43                     # if addition -> return 1 (lower prec)
+  beq $a0, $s0, low_prec         
+  li $s0, 45                     # if substraction -> return 1 (lower prec)
+  beq $a0, $s0, low_prec
+  j load_error_1
+
+high_prec:                       # if higher prec -> return 2
+  li $v0, 2
+  j done_3
+
+low_prec:                         # if lower prec -> return 1
+  li $v0, 1
+  j done_3
+
+load_error_1:                     # if invalid operator -> returnn -1
+    li $v0, -1
+
+done_3:
+  lw $s0, 0($sp)                 # restore $s0 from the stack
+  addi $sp, $sp, 4               # adjust our stack pointer again
+
   jr $ra
+ 
+#---------------------------------------------------------------------------------------#
 
 apply_bop:
   jr $ra
