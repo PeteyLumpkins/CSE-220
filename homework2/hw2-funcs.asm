@@ -120,20 +120,27 @@ apply_bop:    # apply_boop (int v1 = $a0, char op = $a1, int v2 = $a2)
 
   li $s0, 43                    # if (op = '+') -> perform addition
   beq $a1, $s0, do_addition
+  
   li $s0, 45                    # if (op = '-') -> perform subtraction
   beq $a1, $s0, do_subtraction
+  
   li $s0, 42                    # if (op = '*') -> perform multiplication
-  beq $a1, $s0, do_multiplication   
-  jr $ra
+  beq $a1, $s0, do_multiplication  
+   
+  li $s0, 47
+  beq $a1, $s0, do_division	# if (op = '/') -> perform division
 
 do_addition:
   add $v0, $a0, $a2
+  j apply_bop_done
 
 do_subtraction:
   sub $v0, $a0, $a2
+  j apply_bop_done
 
 do_multiplication:
   mul $v0, $a0, $a2             # this should put the lower 32-bits into $v0
+  j apply_bop_done
   
 do_division:
   div $a0, $a2
@@ -164,7 +171,7 @@ apply_bop_done:
 
   lw $s0, 0($sp)                # restore $s0 from the stack
   lw $s1, 4($sp)                # restore $s1 from the stack
-  addi $sp, 8                   # adjust stack pointer to top of stack
+  addi $sp, $sp, 8                   # adjust stack pointer to top of stack
 
   jr $ra                        # return at $v0
 
