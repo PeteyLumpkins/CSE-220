@@ -112,5 +112,60 @@ done_3:
  
 #---------------------------------------------------------------------------------------#
 
-apply_bop:
+apply_bop:    # apply_boop (int v1 = $a0, char op = $a1, int v2 = $a2)
+
+  addi $sp, $sp, -8             # add space on the stack
+  sw $s0, 0($sp)                # store $s0 on the stack
+  sw $s1, 4($sp)                # store $s1 on thee stack
+
+  li $s0, 43                    # if (op = '+') -> perform addition
+  beq $a1, $s0, do_addition
+  li $s0, 45                    # if (op = '-') -> perform subtraction
+  beq $a1, $s0, do_subtraction
+  li $s0, 42                    # if (op = '*') -> perform multiplication
+  beq $a1, $s0, do_multiplication   
   jr $ra
+
+do_addition:
+  add $v0, $a0, $a2
+
+do_subtraction:
+  sub $v0, $a0, $a2
+
+do_multiplication:
+  mul $v0, $a0, $a2             # this should put the lower 32-bits into $v0
+  
+do_division:
+  div $a0, $a2
+  mflo $s0
+
+  lui $s1, 0x8000               # check to see if our quotient is negative or not
+  and $s0, $s0, $s1             # by checking the sign bit of mflo
+  bnez $s0, floor_negative      # if sign-bit != 0 -> floor_negative
+
+  mfhi $s0                      # check to see if our remainder is negative or not
+  and $s0, $s0, $s1             # by checking the sign bit of mfhi
+  bnez $s0, floor_negative      # if sign-bit != 0 -> floor_negative
+
+floor_positive:                 # else -> floor positive (just take quotient that's
+  mflo $v0                      #         in mflo and return)
+  j apply_bop_done
+
+floor_negative:                 # if remainder != 0, then we subtract one from the quotient
+  mfhi $s0
+  mflo $v0
+  bnez $s0, subtract_one
+  j apply_bop_done
+
+subtract_one:
+  addi $v0, $v0, -1
+
+apply_bop_done:
+
+  lw $s0, 0($sp)                # restore $s0 from the stack
+  lw $s1, 4($sp)                # restore $s1 from the stack
+  addi $sp, 8                   # adjust stack pointer to top of stack
+
+  jr $ra                        # return at $v0
+
+#---------------------------------------------------------------------------------------#
