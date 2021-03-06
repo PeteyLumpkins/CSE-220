@@ -129,8 +129,32 @@ stack_pop_done:
   
 #---------------------------------------------------------------------------------------#
 
-is_stack_empty:
-  jr $ra
+is_stack_empty:                   # $a0 == top of the stack
+
+# Preamble
+
+  addi $sp, $sp, -4               # make space on the stack for $s0
+  sw $s0, 0($sp)                  # save reg $s0 on the stack      f
+
+# Body
+
+  addi $a0, $a0, -4               # if stack_pointer =< -4 -> then it's empty
+  li $s0, -4        
+  ble $a0, $s0, is_empty
+  li $v0, 0
+  j is_stack_empty_done
+
+is_empty:
+  li $v0, 1
+
+is_stack_empty_done:
+
+# Postamble
+
+  lw $s0, 0($sp)                  # restore $s0
+  addi $sp, $sp, 4                # adjust stack pointer
+
+  jr $ra                          # return: if stack is empty -> $v0 = 1 else $v0 = 0
 
 #---------------------------------------------------------------------------------------#
 
