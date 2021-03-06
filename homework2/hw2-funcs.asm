@@ -61,11 +61,73 @@ stack_push_done:
   
 #---------------------------------------------------------------------------------------#
 
-stack_peek:
-  jr $ra
+#---------------------------------------------------------------------------------------#
 
-stack_pop:
-  jr $ra
+stack_peek:                       # $a0 = top of stack $a1 = base address of stack
+
+# Preamble 
+
+  addi $sp, $sp, -8               # make space on the stack for $s0
+  sw $s0, 0($sp)                  # save register $s0 to the stack
+  lw $s1, 4($sp)                  # save register $s1 to the stack 
+
+# Body
+
+  addi $s0, $a0, -4               # calculate where are element is on our stack
+  li $s1, -4
+
+  ble $s0, $s1, stack_peek_underflow    # if our position is less than -4, than we have underflow
+
+  add $v0, $a1, $s0               # get position of the top of the stack
+  lw $v0, 0($v0)                  # move value at the top of the stack into $v0
+  j stack_peek_done               # return $v0
+
+  stack_peek_underflow:                
+    li $v0, -1
+
+  stack_peek_done:
+
+# Postamble
+
+    lw $s0, 0($sp)                # restore $s0 from the stack
+    lw $s1, 4($sp)
+    addi $sp, $sp, 8              # adjust stack pointer
+
+    jr $ra                        # return $v0
+
+#---------------------------------------------------------------------------------------#
+
+stack_pop:                        # $a0 = top of the stack, $a1 = base address of stack
+
+# Preamble
+
+  addi $sp, $sp, -4               # make space on the stack for $s0
+  sw $s0, 0($sp)                  # save $s0 onto the stack         
+
+# Body
+
+  addi $v1, $a0, -4               # calculate new top of the stack
+  li $s0, -4                      # if stack pointer < -4 -> underflow
+
+  ble $v1, $s0, stack_pop_underflow     # if top ($v1) < base_address -> stack is empty 
+
+  add $a1, $a1, $v1               # else we add $v1 to base address, and  
+  lw $v0, 0($a1)                  # return the element at top of stack
+  j stack_pop_done
+
+stack_pop_underflow:                    # if stack underflow occurs, return -1 and -1
+  li $v0, -1
+  li $v1, -1
+
+# Postamble
+
+stack_pop_done: 
+
+  lw $s0, 0($sp)                  # restore $s0 from the stack
+  addi $sp, $sp, 4                # adjust the stack pointer
+  jr $ra                          # return $v0 == popped element, $v1 == new top of stack
+  
+#---------------------------------------------------------------------------------------#
 
 is_stack_empty:
   jr $ra
