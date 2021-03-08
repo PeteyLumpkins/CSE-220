@@ -10,6 +10,8 @@ right_bracket_pre:
   sw $a0, 0($sp)                           # Save the expressions start address
   sw $ra, 4($sp)                           # Save return address
 
+right_bracket_loop:
+
   move $a0, $s4                            # Load function args
 
   jal is_stack_empty                       # Function call
@@ -27,7 +29,7 @@ right_bracket_pre:
   move $s4, $v1                             # Adjust our running top of the op_stack
 
   li $t1, 40                                # if top_of_stack == 40 ('(') -> go back to the loop
-  beq $s6, $t1, evaluation_loop             # else -> pop 1 op, pop 2 values, push 1 value
+  beq $s6, $t1, right_bracket_post             # else -> pop 1 op, pop 2 values, push 1 value
 
 # If our top of the stack is not a left bracket, we have to pop two values off of the value stack,
 # apply the operator at 0 to them, and push the result back to the stack
@@ -68,9 +70,11 @@ right_bracket_pre:
   move $a1, $s3
   move $a2, $s1
 
-  jal push_stack                            # function call
+  jal stack_push                            # function call
 
   move $s3, $v0                             # adjust the top of the stack
+
+  j right_bracket_pre                       # go back to the start of the loop, must find left bracket
   
   right_bracket_post:
 
@@ -78,5 +82,6 @@ right_bracket_pre:
     lw $ra, 4($sp)
     addi $sp, $sp, 8
 
-    jr $ra
+    j evaluation_loop                       # jump back to the main loop
+    
 #---------------------------------------------------------------------------------------#
