@@ -13,7 +13,7 @@ next_token:         # $a0 == base address of the equation   # $a1 == starting in
 # Setup
     
     add $s0, $a0, $a1                          # inrement base address up to the current index
-    lbu $s1, 0($a0)                             # Load byte unsigned at base_addr[start_index]
+    lbu $s1, 0($s0)                             # Load byte unsigned at base_addr[start_index]
     addi $s2, $a1, 1                            # New starting index == old starting index + 1
 
 # Body
