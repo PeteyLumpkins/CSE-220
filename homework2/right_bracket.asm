@@ -67,9 +67,9 @@ right_bracket_loop:
   
   beqz $v0, print_parse_error_message       # if underflow occurs in value stack -> parse error
 
-  move $a0, $s1                             # first integer == $s1
+  move $a0, $s2                             # first integer == $s2
   move $a1, $s0                             # operator == $s0
-  move $a2, $s2                             # second integer == $s2
+  move $a2, $s1                             # second integer == $s1
 
   jal apply_bop                             # apply our operator to the values
 
