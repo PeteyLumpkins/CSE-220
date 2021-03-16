@@ -13,12 +13,12 @@ next_token:         # $a0 == base address of the equation   # $a1 == starting in
 # Setup
     
     add $s0, $a0, $a1                          # inrement base address up to the current index
-    lbu $s1, 0($s0)                             # Load byte unsigned at base_addr[start_index]
+    lbu $s1, 0($s0)                             # Load byte unsigned at base_addr[start_index]  #FIXED BUG HERE
     addi $s2, $a1, 1                            # New starting index == old starting index + 1
-
+   
 # Body
 
-    beqz $s1, next_token_done                   # if null_terminator, then just return it
+    beqz $s1, end_of_expression                 # if null_terminator, return 0 in $v1
 
     li $t0, 40                                  # if left_bracket -> check next character
     beq $s1, $t0, check_next_leftbracket
@@ -59,7 +59,7 @@ next_token:         # $a0 == base address of the equation   # $a1 == starting in
 
     # If program has reached this point, then we must have an invalid character
 
-    j print_parse_error_message
+    j print_bad_token_message
 
 check_next_digit:
     addi $s0, $s0, 1                            # increment our expressions base by 1
@@ -126,14 +126,17 @@ check_next_rightbracket:
 
     lbu $a0, 1($s0)                             # if next_char is operator -> return
 
-    jal valid_ops                                # else -> throw parse_error
+    jal valid_ops                               # else -> throw parse_error
 
     beqz $v0, print_parse_error_message 
 
     lw $ra, 0($sp)
     addi $sp, $sp, 4
 
-    j next_token_done     
+    j next_token_done   
+
+end_of_expression:
+  li $s2, 0                                    # if we encounter null term -> return 0 in $v1  
 
 next_token_done:
 
@@ -149,4 +152,5 @@ next_token_done:
     addi $sp, $sp, 16                           # increment stack
 
     jr $ra                                      # return
-#---------------------------------------------------------------------------------------#    
+
+#---------------------------------------------------------------------------------------# 
