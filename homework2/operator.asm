@@ -42,6 +42,9 @@ operator_loop:
     addi $a1, $a1, 2000                  # Offsetting top of the operator stack
 
     jal stack_peek                  # Call to stack_peek
+    
+    li $t0, 40
+    beq $v0, $t0, operator_done	    # if the item on the top of the stack is a left bracket -> then we're done
 
     move $a0, $v0                   # Move operator at top of the stack into $a0 -> call op_precedence
 
