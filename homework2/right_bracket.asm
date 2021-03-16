@@ -37,9 +37,9 @@ right_bracket_loop:
   jal stack_pop                            # Function call
 
   move $s0, $v0                            # Move operator into register $s0 -> save for later
-  sw $v1, 16($sp)                          # Store/replace our running top of the op_stack
+  sw $v1, 16($sp)			   # Update top of the operator stack
 
-  li $t0, 40                               # if top_of_stack == 40 ('(') -> go back to the loop
+  li $t0, 40                               # if top_of_stack == 40 ('(') -> then we're done
   beq $s0, $t0, right_bracket_post         # else -> pop 1 op, pop 2 values, push 1 value
 
 # If our top of the stack is not a left bracket, we have to pop two values off of the value stack,
@@ -67,15 +67,15 @@ right_bracket_loop:
   
   beqz $v0, print_parse_error_message       # if underflow occurs in value stack -> parse error
 
-  move $a0, $s2                             # first integer == $s2
+  move $a0, $s1                             # first integer == $s1
   move $a1, $s0                             # operator == $s0
-  move $a2, $s1                             # second integer == $s1
+  move $a2, $s2                             # second integer == $s2
 
   jal apply_bop                             # apply our operator to the values
 
   move $a0, $v0                             # push $v0 back to value stack 
-  lw $a1, 12($sp)                               # Load top of the value stack -> arg2
-  lw $a2, 20($sp)                             # Load address of the value stack -> arg3
+  lw $a1, 12($sp)                           # Load top of the value stack -> arg2
+  lw $a2, 20($sp)                           # Load address of the value stack -> arg3
 
   jal stack_push                            # function call
 
@@ -84,16 +84,20 @@ right_bracket_loop:
   j right_bracket_loop                      # go back to the start of the loop, must find left bracket
   
   right_bracket_post:
-
-    lw $s0, 0($sp) 
+  
+    lw $v0, 12($sp)			    # Return top of value stack in $v0
+    lw $v1, 16($sp)			    # Return top of operator stack in $v1
+    
+    lw $s0, 0($sp) 			    # Restore values of the $s registers
     lw $s1, 4($sp) 
     lw $s2, 8($sp)  
 
-    lw $a0, 12($sp) 
+    lw $a0, 12($sp) 			    # Don't think we need to restore these registers, but I did it anyway
     lw $a1, 16($sp)  
     lw $a2, 20($sp)
-    lw $ra, 24($sp)
-    addi $sp, $sp, 28 
+    lw $ra, 24($sp)			    # Definitly need to restore $ra
+	
+    addi $sp, $sp, 28 			    # Adjust stack pointer
     
     jr $ra                      	    # return
 
