@@ -61,15 +61,9 @@ right_bracket_loop:
   move $s2, $v0                             # Move second value into register $s2 -> save for later
   sw $v1, 12($sp)                           # Adjust top of the val_stack
 
-  lw $a0, 12($sp)                           # Check if our stack is empty
-
-  jal is_stack_empty                        # Function call
-  
-  beqz $v0, print_parse_error_message       # if underflow occurs in value stack -> parse error
-
-  move $a0, $s1                             # first integer == $s1
+  move $a0, $s2                             # first integer == $s2
   move $a1, $s0                             # operator == $s0
-  move $a2, $s2                             # second integer == $s2
+  move $a2, $s1                             # second integer == $s1
 
   jal apply_bop                             # apply our operator to the values
 
