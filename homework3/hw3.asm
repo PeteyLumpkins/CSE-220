@@ -541,6 +541,13 @@ execute_move:
 	jal get_pocket					# get the number of stones at the origin pocket
 	
 	move $s2, $v0
+			
+	move $a0, $s0					# move game state into func arg1
+	lbu $a1, 5($s0)					# load current player into arg2
+	move $a2, $s1					# load origin pocket into arg3
+	and $a3, $0, $0					# we want to empty the pocket 
+	
+	jal set_pocket
 
 # Setup
 
@@ -584,7 +591,6 @@ execute_add_mancala:
 	
 execute_add_stones:
 	
-	lbu $s1, 3($s0)					# reset $s1 to be the size of the next row
 	move $a0, $s0					# move game state into arg1
 	move $a1, $s4					# move player into arg2
 	li $a2, 1					# add one stone to mancala
@@ -596,6 +602,7 @@ execute_add_stones:
 	
 execute_loop_update_row:
 	lbu $s1, 3($s0)					# reset $s1 to be the size of the next row
+	addi $s1, $s1, -1
 	
 	li $t0, 'T'
 	beq $s4, $t0, execute_loop_bottom		# if we just operated on the top row -> now we're doing the bottom row
