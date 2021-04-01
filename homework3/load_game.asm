@@ -4,20 +4,18 @@ load_game:						# $a0 -> starting address of game state structure $a1 -> game fi
 	
 # Preamble
 
-	addi $sp, $sp, -24				# Allocating stack space
+	addi $sp, $sp, -16				# Allocating stack space
 	sw $ra, 0($sp)					# Saving return address
 	sw $s0, 4($sp)					# $s0 -> holds the base address of game structure
 	sw $s1, 8($sp)					# $s1 -> holds the file descriptor
 	sw $s2, 12($sp)					# $s2 -> total stones we have in the game
-	sw $s3, 16($sp)					# $s3 -> holds modified starting address of the gamee state
-	sw $s4, 20($sp)					# $s4 -> is going to be our running count of the # of pockets
+
 	
 # Setting up the file to read from, initializing variables, etc.
 
 	move $s0, $a0					# We need to hang onto the value in $a0 -> storing a copy in $s0
 	move $s2, $0					# total_stones = 0
-	move $s4, $0					# total_pockets = 0
-
+	
 	move $a0, $a1					# loading function arguement with base address of file to open
 	li $a1, 0					# setting flag to read only access
 	li $v0, 13				
@@ -84,14 +82,29 @@ load_game:						# $a0 -> starting address of game state structure $a1 -> game fi
 	jal load_game_rows				# loads the rows from the file into the game state structure
 
 	add $s2, $s2, $v0				# add the stones to the total stones found
-	move $s4, $v1					# gets the total number of pockets -> moves them into $s4	
+#	move $s4, $v1					# gets the total number of pockets -> moves them into $s4	
 	
 # At this point the entire game has been initialized, except for the moves taken and the players turn
-	
-	
-	
 
+	li $t0, 99
+	bgt $s2, $t0, load_game_invalid_stones		# if total_stones > 99 -> return $v0 = 0
+	move $v0, $s2					# else return $v0 = total_stones and check the pockets
+	
+	j load_game_check_pockets
+				
+load_game_invalid_stones:
+	li $v0, 0					# if total_stones > 99 -> return $v0 = 0
+							# fall through to check_pockets
+load_game_check_pockets:
+	
+	li $t0, 98
+	bgt $v1, $t0, load_game_invalid_pockets		# if total_pockets > 98 -> return $v1 = 0
+	# move $v1, $v1					# else return $v1 = total_pockets -> return
+	j load_game_done				
 
+load_game_invalid_pockets:
+	li $v1, 0					# if total_pockets > 98 -> return $v1 = 0
+	j load_game_done				# return
 	
 invalid_input_file:					# if the file is invalid for some reasone return -> (-1, -1)
 	li $v0, -1
@@ -100,14 +113,11 @@ invalid_input_file:					# if the file is invalid for some reasone return -> (-1,
 	
 load_game_done:
 
-	
-	lw $s0, 0($sp)
-	lw $s1, 4($sp)
-	lw $s2, 8($sp)
-	lw $s3, 12($sp)
-	lw $s4, 16($sp)
-	lw $ra, 20($sp)
-	addi $sp, $sp, 24
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	lw $s2, 12($sp)
+	lw $ra, 0($sp)
+	addi $sp, $sp, 16
 	
 	jr $ra
 	
