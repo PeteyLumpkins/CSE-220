@@ -96,6 +96,10 @@ load_game:						# $a0 -> starting address of game state structure $a1 -> game fi
 	
 # At this point the entire game has been initialized, except for the moves taken and the players turn
 
+	move $a0, $s1					# closing the file
+	li $v0, 16
+	syscall
+
 	li $t0, 99
 	bgt $s2, $t0, load_game_invalid_stones		# if total_stones > 99 -> return $v0 = 0
 	move $v0, $s2					# else return $v0 = total_stones and check the pockets
@@ -589,6 +593,7 @@ execute_move_done:
 	
 	move $v1, $s3					# return our flag in $v1: 0 == default, 1 == steal, 2 == go again
 	move $v0, $s5					# return total stones to add in $v0
+	move $t0, $s1					# return index of the pocket we ended at in (sneaky but it'll work I think)
 	
 	lw $s0, 0($sp)					# restore the temp registers
 	lw $s1, 4($sp)
@@ -600,7 +605,7 @@ execute_move_done:
 	
 	addi $sp, $sp, 28				# increment stack frame
 			
-	jr $ra						# return, $v0 == remaining rocks, $v1 == starting index of bottom row
+	jr $ra						# return, $v0 == stones added, $v1 == indication of special cases
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 
@@ -795,17 +800,19 @@ check_row_done:
 load_moves:		# $a0 -> base address of the byte array to store the moves, $a1 -> filename to read from
 
 # Preamble
+
 	addi $sp, $sp, -20
-	sw $s0, 0($sp)					# $s0 -> copy of file descripter
-	sw $s1, 4($sp)					# $s1 -> number of columns in array
-	sw $s2, 8($sp)					# $s2 -> number of rows in array
-	sw $s3, 12($sp)					# $s3 -> (row_size * 2) -> characters per row
-	sw $ra, 16($sp)				
+	sw $ra, 0($sp)
+	sw $s0, 4($sp)					# $s0 -> copy of file descripter
+	sw $s1, 8($sp)					# $s1 -> number of columns in array
+	sw $s2, 12($sp)					# $s2 -> number of rows in array
+	sw $s3, 16($sp)					# $s3 -> base address of byte array			
 
-
-	move $a0, $a1					# loading function arguement with base address of file to open
-	li $a1, 0					# setting flag to read only access
-	li $v0, 13				
+	move $s3, $a0					# save a copy of the base address of the byte array
+	
+	move $a0, $a1					# arg1 -> filename
+	li $a1, 0					# arg2 -> read-only flag
+	li $v0, 13					# arg3 -> open-file
 	syscall
 	
 	li $t0, -1
@@ -819,29 +826,86 @@ load_moves:		# $a0 -> base address of the byte array to store the moves, $a1 -> 
 	move $a0, $s0					# arg1 -> file descriptor
 	jal load_next_byte				# get the number of rows in the array
 	move $s2, $v0					# $s2 = rows
-	
-	li $t0, 2
-	mul $s3, $s2, $t0				# multiply (rows * 2) -> store in $s3 
-	
-	addi $sp, $sp, -4				# allocate stack space for memory buffer to load in characters
-	
-load_moves_loop:
 
+	move $a0, $s0					# arg1 -> file descripter
+	move $a1, $s3					# arg2 -> base address of byte array
+	move $a2, $s2					# arg3 -> number of rows
 	
-	beqz $v0, load_moves_loop_done			# if we have reached the end of the file -> return
+	jal load_moves_helper				# loads the characters into the byte array
 	
-load_moves_loop_done:
-	addi $sp, $sp, 4				# dealocate stack space we were using for memory buffer
-
-
+	move $s1, $v0
 	
 load_moves_done:
 
+	move $a0, $s0					# CLOSING THE FILE
+	li $v0, 16
+	syscall
+	
+	move $v0, $s1					# moving the items into the return register
+
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	lw $s2, 12($sp)
+	lw $s3, 16($sp)
+	addi $sp, $sp, 20				
+	
+	jr $ra						# return, $v0 -> total moves in the moves array 
+	
+#---------------------------------------------------------------------------------------------------------------------------#
+	
+play_game:	# $a0 -> moves_file, $a1 -> board_file, $a2 -> gamestate struc, $a3 -> moves array, 0($sp) -> num_moves
+
+	move $fp, $sp					# saving copy of stack pointer -> get the last arg easier
+	
+	addi $sp, $sp, -16
+	sw $ra, 0($sp)					
+	sw $s0, 4($sp)					# $s0 -> copy of base address of game-state struc
+	sw $s1, 8($sp)					# $s1 -> copy of base address of moves array
+	sw $s2, 12($sp)					# $s2 -> temp copy of board filename
+	
+	move $s0, $a0					# moves filename
+	move $s1, $a1					# board filename
+	move $s2, $a2					# gamestate
+	move $s3, $a3					# moves array
+	
+	# First we want to load the game and the moves into the game struc and moves array
+	
+	move $a0, $s3					# load moves array
+	move $a1, $s0					# load moves filename
+	
+	jal load_moves
+	
+	li $t0, -1
+	beq $v0, $t0, play_game_invalid_file		# if there's an error loading the moves file -> return (-1, -1)
+	
+	move $a0, $s2					# load gamestate
+	move $a1, $s1					# load board filename
+	
+	jal load_game					# loads the game from the game file into the game-state structure
+	
+	li $t0, -1
+	beq $v0, $t0, play_game_invalid_file		# if there's an error loading the board file -> return (-1, -1)
+
+	# Once everything is loaded into memory, we can start iterating to actually play the game
 	
 	
 	
-	jr $ra
-play_game:
+	
+	li $t0, 0
+	
+	# Now I want to loop through the moves array
+
+play_game_invalid_file:
+	li $v0, -1					
+	li $v1, -1
+	
+play_game_loop:
+	
+	
+	
+	li $t0, 0
+	
 	jr  $ra
 	
 #---------------------------------------------------------------------------------------------------------------------------#
@@ -939,9 +1003,10 @@ write_board:
 
 load_next_byte:	# $a0 -> the initial file pointer to the top of the mancala		# instructions < 50 roughly
 
-	addi $sp, $sp, -8				# allocating stack space
-	sw $s0, 0($sp)					# $s0 -> copy of $a0 (file pointer)
-	sw $s1, 4($sp)					#
+	addi $sp, $sp, -12				# allocating stack space
+	sw $ra, 0($sp)			
+	sw $s0, 4($sp)					# $s0 -> copy of $a0 (file pointer)
+	sw $s1, 8($sp)					#
 	
 	move $s0, $a0					# preserving the file pointer 
 	
@@ -962,14 +1027,14 @@ load_next_byte:	# $a0 -> the initial file pointer to the top of the mancala		# i
 	# 0($sp) == 1's place or '\n' and 4($sp) == one's place or ten's place
 	
 	li $t0, '\n'
-	lw $t1, 0($sp)
+	lbu $t1, 0($sp)
 	beq $t0, $t1, load_next_byte_single		# if 0($sp) == '\n' -> then we're dealiing with 4($sp) == total stones
 	
-	lw $s1, 4($sp)					# load ten's place digit
+	lbu $s1, 4($sp)					# load ten's place digit
 	addi $s1, $s1, -48				# get integer value of ten's place
 	li $t0, 10
 	mul $s1, $s1, $t0				# multiply result by 10
-	lw $t0, 0($sp)
+	lbu $t0, 0($sp)
 	addi $t0, $t0, -48				# get integer value of digit in one's place
 	add $s1, $s1, $t0				# add ten's place and one's place together to get result
 	
@@ -985,7 +1050,7 @@ load_next_byte:	# $a0 -> the initial file pointer to the top of the mancala		# i
 	
 load_next_byte_single:				# if 4($sp) == '\n' -> we have < 10 stones in the mancala
 
-	lw $v0, 4($sp)					# get the digit on the stack
+	lbu $v0, 4($sp)					# get the digit on the stack
 	addi $v0, $v0, -48				# subtract 48 to get the decimal / integer value of the character
 
 	# fall through to done
@@ -994,30 +1059,32 @@ load_next_byte_done:	# $v0 -> the stones in the top, $v1 -> the new file pointer
 	
 	addi $sp, $sp, 8				# deallocate stack space used for reading characters from the file
 	
-	lw $s0, 0($sp)
-	lw $s1, 4($sp)
-	addi $sp, $sp, 8
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	addi $sp, $sp, 12
 	jr $ra						# return, $v0 -> stones in top mancala $v1 -> new file pointer?
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 
 load_game_rows:		# $a0 -> the file descriptor, $a1 -> the current game-state structure
 
-	addi $sp, $sp, -24				# allocating stack space
-	sw $s0, 0($sp)					# $s0 -> running total of stones found
-	sw $s1, 4($sp)					# $s1 -> running total of pockets
+	addi $sp, $sp, -28				# allocating stack space
+	sw $ra, 0($sp)
+	sw $s0, 4($sp)					# $s0 -> running total of stones found
+	sw $s1, 8($sp)					# $s1 -> running total of pockets
 	
-	sw $s2, 8($sp)					# $s2 -> temp sum of pocket
-	sw $s3, 12($sp)					# $s3 -> temp base address of game-state
+	sw $s2, 12($sp)					# $s2 -> temp sum of pocket
+	sw $s3, 16($sp)					# $s3 -> temp base address of game-state
 			
-	sw $s4, 16($sp)					# $s4 -> copy of file descriptor
-	sw $s5, 20($sp)					# $s5 -> copy of game-state structure
+	sw $s4, 20($sp)					# $s4 -> copy of file descriptor
+	sw $s5, 24($sp)					# $s5 -> copy of game-state structure
 
 # Setup
 
 	addi $sp, $sp, -4				# allocate stack space for the first character
-	add $s0, $0, $0					# total_stones = 0
-	add $s1, $0, $0					# total_pockets = 0
+	move $s0, $0					# total_stones = 0
+	move $s1, $0					# total_pockets = 0
 	
 	move $s3, $a1					# copy game-state address into $s3
 	addi $s3, $s3, 8				# increment to address of first row in game state structure
@@ -1085,23 +1152,181 @@ load_rows_loop_done:
 	move $v0, $s0					# return total stones in $v0
 	move $v1, $s1					# return total pockets in $v1
 	
-	lw $s0, 0($sp)
-	lw $s1, 4($sp)
-	lw $s2, 8($sp)
-	lw $s3, 12($sp)
-	lw $s4, 16($sp)
-	lw $s5, 20($sp)
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	lw $s2, 12($sp)
+	lw $s3, 16($sp)
+	lw $s4, 20($sp)
+	lw $s5, 24($sp)
 	
-	addi $sp, $sp, 24
+	addi $sp, $sp, 28
 	
 	jr $ra
 
 #---------------------------------------------------------------------------------------------------------------------------#
 
+load_moves_helper:		# $a0 -> file descripter, $a1 -> byte array, $a2 -> row size
 
+	addi $sp, $sp, -28	
+	sw $ra, 0($sp)					
+	sw $s0, 4($sp)					# $s0 -> copy of file descriptor		
+	sw $s1, 8($sp)					# $s1 -> copy of byte array
+	sw $s2, 12($sp)					# $s2 -> copy of the row size
+	sw $s3, 16($sp)					# $s3 -> temp value of the row size
+	sw $s4, 20($sp)					# $s4 -> rows encountered
+	sw $s5, 24($sp)					# $s5 -> items added to the byte array
+	
+	move $s0, $a0					# save copy of file descriptor
+	move $s1, $a1					# save copy of base address of byte array
+	move $s2, $a2					# save copy of the row size
+	move $s3, $s2					# set temp value of row size -> row size
+	and $s4, $0, $0					# initialize rows seen to 0
+	and $s5, $0, $0					# initialize total moves added to array to 0
+	
+	addi $sp, $sp, -4				# make space on the stack for the next character
 
+load_moves_helper_loop:
 
+	beqz $s3, load_moves_next_row			# if we've inserted a row -> insert 99 and continue iterating
+							
+	# Get the digit in the tens place -> move that value into $s1
+	
+	move $a0, $s0					# move file descriptor into $a0
+	move $a1, $sp					# stack is input buffer for next character
+	li $a2, 1					# we want to just read 1 character
+	li $v0, 14					# load system call 14
+	syscall
+	
+	beqz $v0, load_moves_helper_done		# if end of file -> move to done (shouldn't be the case)
+	
+	li $t0, '\n'
+	lbu $t1, 0($sp)
+	beq $t0, $t1, load_moves_helper_done		# if we've reached the end of the line -> then we're done
+	
+	# Get the digit in the ones place -> add that value to $s1
+	
+	addi $sp, $sp, -4				# allocate stack space for next character
+	
+	move $a0, $s0					# move file descriptor into $a0
+	move $a1, $sp					# stack is input buffer for next character
+	li $a2, 1					# we want to just read 1 character
+	li $v0, 14					# load system call 14
+	syscall
 
+	# Check if both of the characters are valid
+	
+	lbu $a0, 0($sp)					# load ones place digit
+	jal is_digit
+	beqz $v0, load_moves_invalid_move		# if character is not a digit -> add -1 to byte array
+	
+	lbu $a0, 4($sp)					# load tens place digit
+	jal is_digit
+	beqz $v0, load_moves_invalid_move		# if character is not a digit -> add -1 to byte array
+	
+	# If both characters are valid, we can safely get their integer values and append them to the byte string
+	
+	lbu $t0, 4($sp)					# get the digit in the ten's place
+	addi $t0, $t0, -48				# get integer value of digit
+	li $t1, 10
+	mul $t0, $t0, $t1				# multiply digit in ten's place by 10
+	
+	lbu $t1, 0($sp)					# get the digit in the one's place
+	addi $t1, $t1, -48				# get integer value of digit
+	
+	add $t0, $t0, $t1				# add the ten's place and the one's place together
+	sb $t0, 0($s1)					# store the result to the byte array
+	
+	j load_moves_next_char
+	
+load_moves_next_row:					# if we've hit the end of the row -> insert 99
+	addi $s4, $s4, 1				# increment rows seen by 1
+	bge $s4, $s2, load_moves_helper_done 		# if we've seen (row_size - 1) rows -> exit
+	
+	li $t0, 99
+	sb $t0, 0($s1)					# store the 99
+	addi $s1, $s1, 1				# increment base address of the moves array
+	addi $s5, $s5, 1				# add one to total
+	move $s3, $s2					# reset the row size counter to the row size
+	j load_moves_helper_loop
+	
+load_moves_invalid_move:				# if the move is invalid -> I want to store -1 in the byte array, easy to id
+	li $t0, -1
+	sb $t0, 0($s1)					# store at next position in the byte array
+
+load_moves_next_char:
+	addi $s3, $s3, -1				# decrement the temp row size
+	addi $s1, $s1, 1				# increment base address of the string by 1
+	addi $sp, $sp, 4				# adjust stack frame to get next characters
+	addi $s5, $s5, 1				# add one to the total
+	
+	j load_moves_helper_loop 			# go to next loop iteration
+	
+load_moves_helper_done:
+
+	addi $sp, $sp, 4				# deallocate the stack space for the memory buffer
+	move $v0, $s5					# return items added to the byte array in $v0
+	
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	lw $s2, 12($sp)
+	lw $s3, 16($sp)
+	lw $s4, 20($sp)
+	lw $s5, 24($sp)
+	addi $sp, $sp, 28
+	
+	jr $ra
+
+#---------------------------------------------------------------------------------------------------------------------------#
+
+is_digit:
+  	addi $sp, $sp -4                # first we make space on the stack for 1 item
+ 	sw $s0, 0($sp)                  # push value in reg $s0 to stack
+
+  	li $s0, 48                      # if char < 48 ('0') then -> return 0
+  	blt $a0, $s0, is_not_digit
+
+  	li $s0, 57                      # if char > 57 ('9') then -> return 0
+ 	bgt $a0, $s0, is_not_digit
+
+  	li $v0, 1                       # else 48 <= char <= 57 -> return 1
+  	j done_1
+
+is_not_digit:
+  	li $v0, 0                       # return 0
+
+done_1:
+  	lw $s0, 0($sp)                  # restore value of $s0
+  	addi $sp, $sp, 4                # adjust the stack pointer
+
+  	jr $ra                          # return $v0
+  	
+#---------------------------------------------------------------------------------------------------------------------------#
+
+read_character:		# $a0 -> file descriptor of the file to read character from
+ 	
+ 	addi $sp, $sp, -4
+
+ #	move $a0, $a0					# move file descriptor into $a0
+	move $a1, $sp					# stack is input buffer for next character
+	li $a2, 1					# we want to just read 1 character
+	li $v0, 14					# load system call 14
+	syscall
+	
+	beqz $v0, read_character_endfile		# if $v0 == end of file -> return -1
+	
+	lbu $v0, 0($sp)					# load unsigned character value
+	addi $sp, $sp, 4				# deallocate stack space
+	jr $ra
+	
+read_character_endfile:
+	li $v0, -1
+	jr $ra
+	
+#---------------------------------------------------------------------------------------------------------------------------#
+ 	
+ 	
 	
 ############################ DO NOT CREATE A .data SECTION ############################
 ############################ DO NOT CREATE A .data SECTION ############################
