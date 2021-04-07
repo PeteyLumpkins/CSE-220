@@ -382,7 +382,7 @@ verify_move:		# let $a0 == current game state, $a1 == origin_pocket of the move 
 
 # Preamble
 
-	addi $sp, $sp, -12			# save registers to the stack frame
+	addi $sp, $sp, -16			# save registers to the stack frame
 	sw $s0, 0($sp)				# Let $s0 == copy of game_state ($a0)
 	sw $s1, 4($sp)				# Let $s1 == copy of the distance ($a2) 
 	sw $s2, 8($sp)				# Let $s2 == copy of origin_pocket ($a1)
@@ -392,7 +392,7 @@ verify_move:		# let $a0 == current game state, $a1 == origin_pocket of the move 
 
 	blez $a2, verify_move_invalid2		# if distance <= 0 then return $v0 == -2
 	
-	li $t0, 99				# if distancee == 99 -> thenn return $v0 == 2
+	li $t0, 99				# if distance == 99 -> thenn return $v0 == 2
 	beq $a2, $t0, verify_move_99
 	
 	move $s0, $a0				# Save game state
@@ -453,7 +453,7 @@ verify_move_done:
 	lw $s2, 8($sp)
 	lw $ra, 12($sp)
 	
-	addi $sp, $sp, 8
+	addi $sp, $sp, 16
 	
 	jr  $ra					# return $v0
 	
@@ -464,12 +464,12 @@ execute_move:			# $a0 -> game state, $a1 -> the origin pocket of the move to be 
 # Preamble
 
 	addi $sp, $sp, -28
-	sw $s0, 0($sp)					# using $s0, $s1, $s2 -> for copies of arguements
-	sw $s1, 4($sp)
-	sw $s2, 8($sp)
-	sw $s3, 12($sp)					# let $s3 -> be our flag -> indicates special cases and things
-	sw $s4, 16($sp)
-	sw $s5, 20($sp)					# let $s5 -> be the total stones to add to players mancala
+	sw $s0, 0($sp)					# $s0 -> copy of game state base address
+	sw $s1, 4($sp)					# $s1 -> copy of starting index
+	sw $s2, 8($sp)					# $s2 -> total stones from origin_pocket
+	sw $s3, 12($sp)					# $s3 -> flag that indicates special cases 
+	sw $s4, 16($sp)					# $s4 -> current row we are in
+	sw $s5, 20($sp)					# $s5 -> be the total stones to add to players mancala
 	sw $ra, 24($sp)					# Making function calls -> so we're saving $ra
 	
 	move $s0, $a0					# save a copy of the game state
@@ -517,7 +517,9 @@ execute_move_loop:
 	j execute_move_set_pocket			# else we just keep going, leave the flag as is
 	
 execute_move_empty_pocket:
-	li $s3, 1					# $s3 -> the "1" flag means that our last deposit was in an empty hole
+	lbu $t0, 5($s0)					
+	bne $t0, $s4, execute_move_set_pocket		# if depositing into empty pocket in opponentes row -> continue
+	li $s3, 1					# else -> $s3 -> the "1" flag means that our last deposit was in an empty hole
 	
 execute_move_set_pocket:
 
@@ -548,7 +550,6 @@ execute_add_stones:
 	addi $s2, $s2, -1				# decrement total stones by 1
 	
 	li $s3, 2					# update our flag to "2" -> we just deposited into mancala
-	
 	# fall through to update the next row
 	
 execute_loop_update_row:
@@ -569,6 +570,14 @@ execute_loop_update_player:
 	addi $t0, $t0, 1
 	sb $t0, 4($s0)
 	
+	# Before updating the player -> we need current player who just moved to collect their stones!
+	
+	move $a0, $s0					# move game state into arg1
+	lbu $a1, 5($s0)					# move player into arg2
+	move $a2, $s5					# add stones to mancala
+	
+	jal collect_stones				# calling collect stones -> we want to add all the stones to the mancala
+	
 	li $t0, 2
 	beq $s3, $t0, execute_move_done			# if flag == 2 -> then we don't change the gamestates current player
 	
@@ -584,16 +593,10 @@ execute_move_bottom:
 	sb $t0, 5($s0)
 	
 execute_move_done:
-
-	move $a0, $s0					# move game state into arg1
-	move $a1, $s4					# move player into arg2
-	move $a2, $s5					# add stones to mancala
-	
-	jal collect_stones				# calling collect stones -> we want to add all the stones to the mancala
 	
 	move $v1, $s3					# return our flag in $v1: 0 == default, 1 == steal, 2 == go again
 	move $v0, $s5					# return total stones to add in $v0
-	move $t0, $s1					# return index of the pocket we ended at in (sneaky but it'll work I think)
+	addi $t0, $s1, 1	# return index of the pocket we ended at in (sneaky but it'll work I think) -> it's off by 1 here
 	
 	lw $s0, 0($sp)					# restore the temp registers
 	lw $s1, 4($sp)
@@ -609,7 +612,7 @@ execute_move_done:
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 
-steal:			# $a0 -> take the current state of the game, $a1 -> take the destination pocket 
+steal:			# $a0 -> current state of the game, $a1 -> destination pocket 
 
 # Preamble
 
@@ -702,88 +705,104 @@ check_row:		# $a0 -> current game-state		# roughly 500~ instructions per executi
 # Preamble
 
 	addi $sp, $sp, -20		
-	sw $s0, 0($sp)			# $s0 -> copy of the game-state base address
-	sw $s1, 4($sp)			# $s1 -> starting index for the row size
-	sw $s2, 8($sp)			# $s2 -> sum of the rocks in the top row
-	sw $s3, 12($sp)			# $s3 -> sum of the rocks in the bottom row
+	sw $s0, 0($sp)					# $s0 -> copy of the game-state base address
+	sw $s1, 4($sp)					# $s1 -> starting index for the row size
+	sw $s2, 8($sp)					# $s2 -> sum of the rocks in the top row
+	sw $s3, 12($sp)					# $s3 -> sum of the rocks in the bottom row
 	
-	sw $ra, 16($sp)			# save return address
+	sw $ra, 16($sp)					# save return address
 	
 # Settup
 	
-	move $s0, $a0			# saving copy of the game-state
-	lbu $s1, 2($s0)			# store row size in $s1
-	addi $s1, $s1, -1		# subtract 1 from row size -> (last index in row)
+	move $s0, $a0					# saving copy of the game-state
+	lbu $s1, 2($s0)					# store row size in $s1
+	addi $s1, $s1, -1				# subtract 1 from row size -> (last index in row)
 	
-	and $s2, $0, $0			# set total top rocks == 0
-	and $s3, $0, $0			# set total bottom rocks == 0
+	and $s2, $0, $0					# set total top rocks == 0
+	and $s3, $0, $0					# set total bottom rocks == 0
 
 # Main loop
 check_row_loop:
 	
-	bltz $s1, check_row_loop_done	# if index < 0 -> then we're done
+	bltz $s1, check_row_loop_done			# if index < 0 -> then we're done
 
-	move $a0, $s0			# arg1 -> game-state base address
-	li $a1, 'T'			# arg2 -> top row
-	move $a2, $s1			# arg3 -> index of the pocket to get rocks from
+	move $a0, $s0					# arg1 -> game-state base address
+	li $a1, 'T'					# arg2 -> top row
+	move $a2, $s1					# arg3 -> index of the pocket to get rocks from
 	
-	jal get_pocket			# get rocks in top pocket
+	jal get_pocket					# get rocks in top pocket
 	
-	add $s2, $s2, $v0		# add rocks to running total in top
+	add $s2, $s2, $v0				# add rocks to running total in top
 	
-	move $a0, $s0			# arg1 -> game-state base address
-	li $a1, 'B'			# arg2 -> bottom row
-	move $a2, $s1			# arg3 -> index of the pocket to get rocks from
+	move $a0, $s0					# arg1 -> game-state base address
+	li $a1, 'B'					# arg2 -> bottom row
+	move $a2, $s1					# arg3 -> index of the pocket to get rocks from
 
-	jal get_pocket			# get rocks in bottom pocket
+	jal get_pocket					# get rocks in bottom pocket
 	
-	add $s3, $s3, $v0		# add rocks to running total in bottom
+	add $s3, $s3, $v0				# add rocks to running total in bottom
 	
-	bnez $s2, check_row_check	# if $s2 != 0 -> check if $s3 != 0
+	bnez $s2, check_row_check_bottom		# if $s2 != 0 -> check if $s3 != 0
+	
+	bnez $s3, check_row_check_top			# if $s3 != 0 -> check if #s2 != 0
 		
-	j check_row_loop_next		# else continue to iterate summing the stones in the rows
+	j check_row_loop_next				# else continue to iterate summing the stones in the rows
 
-check_row_check:
+check_row_check_bottom:
 	
-	bnez $s3, check_row_loop_break	# if $s3 != 0 and $s3 != 0 -> then we can exit early 
-					# else -> proceed to next character
+	bnez $s3, check_row_loop_break			# if $s2 != 0 and $s3 != 0 -> then we can exit early 
+	j check_row_loop_next				# else -> proceed to next character
+	
+check_row_check_top:
+	
+	bnez $s2, check_row_loop_break			# if $s3 != 0 and $s2 != 0 -> break out of the loop
+							# else -> proceed to next character
 check_row_loop_next:
 	
-	addi $s1, $s1, -1		# decrement index
-	j check_row_loop		# go to next loop iteration
+	addi $s1, $s1, -1				# decrement index
+	j check_row_loop				# go to next loop iteration
 	
-check_row_loop_done:			# if we're here, we need to add the stones to the mancalas
+check_row_loop_done:					# if we're here, we need to add the stones to the mancalas
 
-	move $a0, $s0			# arg1 -> game-state
-	li $a1, 'T'			# arg2 -> top row
-	move $a2, $s2			# arg3 -> stones from top row
+	move $a0, $s0					# arg1 -> game-state
+	li $a1, 'T'					# arg2 -> top row
+	move $a2, $s2					# arg3 -> stones from top row
 	
-	jal collect_stones		# collect stones from top row
+	jal collect_stones				# collect stones from top row
 
-	move $a0, $s0			# arg1 -> game state
-	li $a1, 'B'			# arg2 -> bottom row
-	move $a2, $s3			# arg3 -> stones from bottom row
+	move $a0, $s0					# arg1 -> game state
+	li $a1, 'B'					# arg2 -> bottom row
+	move $a2, $s3					# arg3 -> stones from bottom row
 	
-	jal collect_stones 		# collect stones from bottom row
+	jal collect_stones 				# collect stones from bottom row
 
-	li $v0, 1			# game is over -> load 1 into $v0
-	j check_row_get_mancala		# next -> we check which mancala has more stones
+	li $v0, 1					# game is over -> load 1 into $v0
+	li $t0, 'D'
+	sb $t0, 5($s0)					# update the player in game-state to done -> 'D'
+	
+	j check_row_get_mancala				# next -> we check which mancala has more stones
 	
 check_row_loop_break:
 
-	li $v0, 0			# if $s2 != 0 and $s3 != 0 -> then we return $v0 == 0
-					# fall through to get mancala with more stones in it
+	li $v0, 0					# if $s2 != 0 and $s3 != 0 -> then we return $v0 == 0
+							# fall through to get mancala with more stones in it
 check_row_get_mancala:	
-	lbu $t0, 0($s0)			# get rocks in bottom mancala
-	lbu $t1, 1($s0)			# get rocks in top mancala
-	bgt $t0, $t1, check_row_bottom	# if bottom > top -> then return player 1 
-					# else if bottom <= top -> then return player 2
-	li $v1, 2
-	j check_row_done
+	lbu $t0, 0($s0)					# get rocks in bottom mancala
+	lbu $t1, 1($s0)					# get rocks in top mancala
+	bgt $t0, $t1, check_row_bottom			# if bottom > top -> then return player 1 
+							
+	bgt $t1, $t0, check_row_top			# else if top > bottom -> return player 2
+	
+	move $v1, $0					# else, we have a tie game -> return 0
+	j check_row_done				# jump to done
+	
+check_row_top:
+	li $v1, 2					# if top > bottom -> return player 2
+	j check_row_done				# jump to done
 	
 check_row_bottom:
-	li $v1, 1			# if bottom > top -> return player 1
-					# fall through to done
+	li $v1, 1					# if bottom > top -> return player 1
+							# fall through to done
 check_row_done:
 
 	lw $s0, 0($sp)
@@ -793,7 +812,7 @@ check_row_done:
 	lw $ra, 16($sp)
 	addi $sp, $sp, 20
 	
-	jr $ra				# return; $v0 -> 1 if game is over, 0 otherwise; $v1 -> 1 if top > bottom, 2 otherwise
+	jr $ra			# return; $v0 -> 1 if game is over, 0 otherwise; $v1 -> 1 if top > bottom, 2 if bottom > top, else 0
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 
@@ -830,6 +849,7 @@ load_moves:		# $a0 -> base address of the byte array to store the moves, $a1 -> 
 	move $a0, $s0					# arg1 -> file descripter
 	move $a1, $s3					# arg2 -> base address of byte array
 	move $a2, $s2					# arg3 -> number of rows
+	mul $a3, $s1, $s2				# arg4 -> rows * cols -> (size of moves array)
 	
 	jal load_moves_helper				# loads the characters into the byte array
 	
@@ -858,55 +878,163 @@ play_game:	# $a0 -> moves_file, $a1 -> board_file, $a2 -> gamestate struc, $a3 -
 
 	move $fp, $sp					# saving copy of stack pointer -> get the last arg easier
 	
-	addi $sp, $sp, -16
+	addi $sp, $sp, -24
 	sw $ra, 0($sp)					
-	sw $s0, 4($sp)					# $s0 -> copy of base address of game-state struc
-	sw $s1, 8($sp)					# $s1 -> copy of base address of moves array
-	sw $s2, 12($sp)					# $s2 -> temp copy of board filename
+	sw $s0, 4($sp)					# $s0 -> temp copy of moves filename
+	sw $s1, 8($sp)					# $s1 -> temp copy of board filename
+	sw $s2, 12($sp)					# $s2 -> copy of game-state base address
+	sw $s3, 16($sp)					# $s3 -> copy of moves-array base address
+	sw $s4, 20($sp)					# total valid moves executed
 	
 	move $s0, $a0					# moves filename
 	move $s1, $a1					# board filename
 	move $s2, $a2					# gamestate
 	move $s3, $a3					# moves array
+	move $s4, $0
 	
 	# First we want to load the game and the moves into the game struc and moves array
 	
 	move $a0, $s3					# load moves array
 	move $a1, $s0					# load moves filename
 	
-	jal load_moves
+	jal load_moves					# load moves from file into moves array
 	
-	li $t0, -1
-	beq $v0, $t0, play_game_invalid_file		# if there's an error loading the moves file -> return (-1, -1)
+	blez $v0 play_game_invalid_file		# if there's an error loading the moves file -> return (-1, -1)
+	
+	move $s0, $v0					# $s0 -> total moves in the move array (bad moves, 99's included)
 	
 	move $a0, $s2					# load gamestate
 	move $a1, $s1					# load board filename
 	
 	jal load_game					# loads the game from the game file into the game-state structure
 	
-	li $t0, -1
-	beq $v0, $t0, play_game_invalid_file		# if there's an error loading the board file -> return (-1, -1)
+	blez $v0, play_game_invalid_file		# if there's an error loading the board file -> return (-1, -1)
 
-	# Once everything is loaded into memory, we can start iterating to actually play the game
+	# Once everything is loaded into memory, we need to set up our loop
 	
+	lw $s1, 0($fp)					# $s1 -> total moves to execute -> get from frame pointer
 	
+play_game_loop:
 	
+	beqz $s0, play_game_loop_done			# if -> reached the end of the moves array -> exit (no more moves)
+	beqz $s1, play_game_loop_done			# if -> executed the specified number of moves
 	
-	li $t0, 0
+	# First -> check if the move is valid
 	
-	# Now I want to loop through the moves array
+	move $a0, $s2					# arg1 -> game-state base address
+	lbu $a1, 5($s2)					# arg2 -> current player
+	lbu $a2, 0($s3)					# arg3 -> origin pocket of next move to execute
+	
+	jal get_pocket					# get stones in the pocket to execute the next move on
+	
+	move $a0, $s2					# arg1 -> game-state base address
+	lbu $a1, 0($s3)					# arg2 -> next move in moves array
+	move $a2, $v0					# arg3 -> distance we'll be going with the stones
+	
+	li $t0, 99
+	beq $a1, $t0, play_game_loop_next		# if next_move == 99 -> change the team
+	
+	jal verify_move					# else -> check if the next move is a valid move
+	
+	li $t0, 1
+	bne $v0, $t0, play_game_loop_next		# if the next move isn't valid -> then go to the next move
+	
+	move $a0, $s2					# arg1 -> game-state base address
+	lbu $a1, 0($s3)					# arg2 -> next move in the moves array
+	
+	jal execute_move				# execute the move
+	
+	addi $s4, $s4, 1				# if the move executes successfully -> increment total moves
+	
+	beqz $v1, play_game_loop_next			# if execute_move == 0 -> go to next iteration
+	
+	li $t1, 1
+	beq $v1, $t1, play_game_loop_steal		# if execute_move == 1 -> execute steal
+	
+	li $t1, 2
+	beq $v1, $t1, play_game_loop_next		# if execute_move == 2 -> go to next iteration (case handled in execute move)
+	
+	j play_game_invalid_file			# execute_move should only return 0, 1, or 2
+	
+play_game_loop_steal:
 
+	move $a0, $s2					# arg1 -> game-state base address
+	move $a1, $t0					# arg2 -> destination pocket of last execute move
+	
+	jal steal					# make the steal
+	
+	# ignoring return value (I don't think it's important -> stones should have been added to mancala already)
+	
+	j play_game_loop_next				# move to the next loop iteration
+	
+play_game_loop_change_team:				# if execute_move == 2 -> change current player turn
+	
+	lbu $t0, 5($s2)					# load the current players turn
+	li $t1, 'B'
+	
+	beq $t0, $t1, play_game_loop_change_top		# if current player == 'B' -> then set current player to 'T'
+	sb $t1, 5($s2)					# else set current player to 'B'
+	
+	j play_game_loop_next				# go to next loop iteration
+	
+play_game_loop_change_top:
+	li $t0, 'T'
+	sb $t0, 5($s2)					# change current player -> to the top player
+	# fall through to next
+	
+play_game_loop_next:
+	
+	# Third -> check if the game is over or not, if so we exit the loop, if not, keep going
+	
+	move $a0, $s2					# arg1 -> game-state base address
+	
+	jal check_row					# check the rows of the updated game-state after the move
+	
+	bnez $v0, play_game_loop_done			# if check_row != 0 -> then the game is over
+
+	addi $s3, $s3, 1				# increment base address of moves array by 1 (get next move)
+	addi $s0, $s0, -1				# decrement moves remaining in moves array by 1
+	addi $s1, $s1, -1				# decrement moves left to execute by 1
+	
+	move $a0, $s2					# print out the board
+	jal print_board
+	
+	lbu $a0, 5($s2)					# print player
+	li $v0, 11
+	syscall
+	
+	li $a0, '\n'
+	li $v0, 11
+	syscall
+	
+	j play_game_loop
+
+play_game_loop_done:
+
+	# Now all we have to do is check who won and return the total moves executed
+	
+	move $v0, $v1					# move winning player into $v0
+
+	lb $t0, 0($fp)					# get total moves we were allowed to execute
+	sub $v1, $t0, $s1				# subtract moves remaining from total moves (to get moves executed)
+
+	j play_game_done
+	
 play_game_invalid_file:
 	li $v0, -1					
 	li $v1, -1
 	
-play_game_loop:
+play_game_done:
 	
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	lw $s2, 12($sp)
+	lw $s3, 16($sp)
+	lw $s4, 20($sp)
+	addi $sp, $sp, 24
 	
-	
-	li $t0, 0
-	
-	jr  $ra
+	jr $ra
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 
@@ -996,10 +1124,112 @@ print_board_done:
 	
 #---------------------------------------------------------------------------------------------------------------------------#
 	
-write_board:
+write_board:		# $a0 -> the current game state
+
+	addi $sp, $sp, -12
+	sw $ra, 0($sp)					
+	sw $s0, 4($sp)					# $s0 -> copy of the game-state
+	sw $s1, 8($sp)					# $s1 -> copy of the file descriptor
+	
+	move $s0, $a0					# save a copy of base address of the game-state
+	
+	jal write_board_get_descriptor			# get file descriptor for file called "output.txt"
+	
+	li $t0, -1					# if there's an error getting descriptor -> return -1
+	beq $v0, $t0, write_board_file_error		# else -> continue
+							
+	move $s1, $v0					# move file descriptor to $s1
+	
+	# Now we can start operating on the file
+	
+	move $a0, $s1					# arg1 -> file descriptor
+	lbu $a1, 6($s0)					# arg2 -> ten's place digit of top mancala's total
+	jal write_board_write_char
+	
+	move $a0, $s1					# arg1 -> file descriptor
+	lbu $a1, 7($s0)					# arg2 -> one's place digit of top mancala's total
+	jal write_board_write_char
+	
+	move $a0, $s1					# arg1 -> file descriptor
+	li $a1, '\n'					# arg2 -> newline character
+	jal write_board_write_char
+	
+write_board_file_error:					# if file error -> return -1
+	li $v0, -1
+	
+write_board_done:
+
+	move $a0, $s1					# close the file we are writing to
+	li $v0, 16
+	syscall
+	
+	lw $ra, 0($sp)
+	lw $s0, 4($sp)
+	lw $s1, 8($sp)
+	addi $sp, $sp, 12
+	
 	jr $ra
 	
 #---------------------------------------------------------------------------------------------------------------------------#
+# HELPER METHODS START HERE!!!	
+#---------------------------------------------------------------------------------------------------------------------------#
+
+write_board_write_char:		# $a0 -> file descriptor, $a1 -> character to write to the file
+	
+	addi $sp, $sp, -1				# allocate space on stack for our character
+	sb $a1, 0($sp)					# store character to stack
+	
+	# move $a0, $a0
+	move $a1, $sp					# using the stack as the memory buffer
+	li $a2, 1					# read 1 character
+	li $v0, 15					# writing to file
+	syscall
+	
+	lbu $t0, 0($sp)
+	
+	addi $sp, $sp, 1				# deallocate stack space
+	
+	jr $ra						# returns $v0 -> negative if there's an error, I'm assuming
+
+#---------------------------------------------------------------------------------------------------------------------------#
+
+write_board_get_descriptor:	# takes no arguments -> gets the file descriptor to write to file called "output.txt"
+
+	addi $sp, $sp, -11 				# allocate stack space for filename...
+	li $t0, 'o'
+	li $t1, 'u'					# loading characters we need into $t registers
+	li $t2, 't'
+	li $t3, 'p'
+	li $t4, 'x'
+	li $t5, '.'
+	li $t6, '\0'
+	
+	sb $t0, 0($sp)	# o				# I think you get what I'm doing here
+	sb $t1, 1($sp)	# u
+	sb $t2, 2($sp)	# t
+	sb $t3, 3($sp)	# p
+	sb $t1, 4($sp)	# u
+	sb $t2, 5($sp)	# t
+	sb $t5, 6($sp)	# .
+	sb $t2, 7($sp)	# t
+	sb $t4, 8($sp)	# x
+	sb $t2, 9($sp)	# t
+	sb $t6, 10($sp) # \0
+
+	# base address of the filename is now at $sp, I'm pretty sure
+	
+	move $a0, $sp					# load address of the filename
+	li $a1, 1					# open file for writing
+	li $a2, 0					# ignore the mode
+	li $v0, 13					# get file descriptor
+	syscall
+	
+	addi $sp, $sp, 11				# deallocate stack spaced used for filename
+	
+	jr $ra						# return file descriptor in $v0
+							
+#---------------------------------------------------------------------------------------------------------------------------#
+	
 
 load_next_byte:	# $a0 -> the initial file pointer to the top of the mancala		# instructions < 50 roughly
 
@@ -1166,9 +1396,9 @@ load_rows_loop_done:
 
 #---------------------------------------------------------------------------------------------------------------------------#
 
-load_moves_helper:		# $a0 -> file descripter, $a1 -> byte array, $a2 -> row size
+load_moves_helper:		# $a0 -> file descripter, $a1 -> byte array, $a2 -> row size, $a3 -> array_length
 
-	addi $sp, $sp, -28	
+	addi $sp, $sp, -32	
 	sw $ra, 0($sp)					
 	sw $s0, 4($sp)					# $s0 -> copy of file descriptor		
 	sw $s1, 8($sp)					# $s1 -> copy of byte array
@@ -1176,10 +1406,14 @@ load_moves_helper:		# $a0 -> file descripter, $a1 -> byte array, $a2 -> row size
 	sw $s3, 16($sp)					# $s3 -> temp value of the row size
 	sw $s4, 20($sp)					# $s4 -> rows encountered
 	sw $s5, 24($sp)					# $s5 -> items added to the byte array
+	sw $s6, 28($sp)					# $s6 -> copy of array_length
 	
 	move $s0, $a0					# save copy of file descriptor
 	move $s1, $a1					# save copy of base address of byte array
 	move $s2, $a2					# save copy of the row size
+	move $s6, $a3					# save copy of array_length
+	addi $s6, $s6 -1				# decrement by 1 -> (row * col - 1) -> last index in array
+	
 	move $s3, $s2					# set temp value of row size -> row size
 	and $s4, $0, $0					# initialize rows seen to 0
 	and $s5, $0, $0					# initialize total moves added to array to 0
@@ -1241,7 +1475,7 @@ load_moves_helper_loop:
 	
 load_moves_next_row:					# if we've hit the end of the row -> insert 99
 	addi $s4, $s4, 1				# increment rows seen by 1
-	bge $s4, $s2, load_moves_helper_done 		# if we've seen (row_size - 1) rows -> exit
+	bge $s4, $s6, load_moves_helper_done 		# if we've seen (size - 1) element -> exit
 	
 	li $t0, 99
 	sb $t0, 0($s1)					# store the 99
@@ -1274,7 +1508,8 @@ load_moves_helper_done:
 	lw $s3, 16($sp)
 	lw $s4, 20($sp)
 	lw $s5, 24($sp)
-	addi $sp, $sp, 28
+	lw $s6, 28($sp)
+	addi $sp, $sp, 32
 	
 	jr $ra
 
