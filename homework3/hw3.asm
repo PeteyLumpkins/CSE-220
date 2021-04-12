@@ -857,7 +857,7 @@ load_moves:		# $a0 -> base address of the byte array to store the moves, $a1 -> 
 
 	move $a0, $s0					# arg1 -> file descripter
 	move $a1, $s3					# arg2 -> base address of byte array
-	move $a2, $s2					# arg3 -> number of rows
+	move $a2, $s1					# arg3 -> number of elements per row
 	mul $a3, $s1, $s2				# arg4 -> rows * cols -> (size of moves array)
 	
 	jal load_moves_helper				# loads the characters into the byte array
@@ -925,8 +925,8 @@ play_game:	# $a0 -> moves_file, $a1 -> board_file, $a2 -> gamestate struc, $a3 -
 	
 play_game_loop:
 	
-	beqz $s0, play_game_loop_done			# if -> reached the end of the moves array -> exit (no more moves)
-	beqz $s1, play_game_loop_done			# if -> executed the specified number of moves
+	blez $s0, play_game_loop_done			# if -> reached the end of the moves array -> exit (no more moves)
+	blez $s1, play_game_loop_done			# if -> executed the specified number of moves
 	
 	# First -> check if the move is valid
 	
@@ -941,12 +941,12 @@ play_game_loop:
 	move $a2, $v0					# arg3 -> distance we'll be going with the stones
 	
 	li $t0, 99
-	beq $a1, $t0, play_game_loop_next		# if next_move == 99 -> go to next move
+	beq $a1, $t0, play_game_loop_change_team	# if next_move == 99 -> then just pass over it
 	
 	jal verify_move					# else -> check if the next move is a valid move
 	
 	li $t0, 1
-	bne $v0, $t0, play_game_loop_next		# if the next move isn't valid -> then go to the next move
+	bne $v0, $t0, play_game_loop_pass		# if the next move isn't valid -> then pass over it
 	
 	move $a0, $s2					# arg1 -> game-state base address
 	lbu $a1, 0($s3)					# arg2 -> next move in the moves array
@@ -989,21 +989,31 @@ play_game_loop_change_team:				# if execute_move == 2 -> change current player t
 play_game_loop_change_top:
 	li $t0, 'T'
 	sb $t0, 5($s2)					# change current player -> to the top player
-	# fall through to next
+	
+	j play_game_loop_next				# go to next iteration
+	
+play_game_loop_pass:
+	
+	# If the arguement is invalid or 99 -> we need to go to next iteration, but not count it as a valid move
+	
+	addi $s3, $s3, 1				# we still have to increment the moves array
+	addi $s0, $s0, -1				# decrement moves left in moves array (invalid or valid)
+	
+	j play_game_loop
 	
 play_game_loop_next:
 	
 	# Third -> check if the game is over or not, if so we exit the loop, if not, keep going
+	
+	addi $s3, $s3, 1				# increment base address of moves array by 1 (get next move)
+	addi $s0, $s0, -1				# decrement moves remaining in moves array by 1
+	addi $s1, $s1, -1				# decrement moves left to execute by 1
 	
 	move $a0, $s2					# arg1 -> game-state base address
 	
 	jal check_row					# check the rows of the updated game-state after the move
 	
 	bnez $v0, play_game_loop_done			# if check_row != 0 -> then the game is over
-
-	addi $s3, $s3, 1				# increment base address of moves array by 1 (get next move)
-	addi $s0, $s0, -1				# decrement moves remaining in moves array by 1
-	addi $s1, $s1, -1				# decrement moves left to execute by 1
 	
 	move $a0, $s2					# print out the board
 	jal print_board
@@ -1025,11 +1035,14 @@ play_game_loop_done:
 	move $a0, $s2					# arg1 -> game-state
 	jal check_row					# check the rows for a winner
 	
-	move $v0, $v1					# move winning player into $v0
+	move $t1, $v1					# save winning player for a second
 
 	lb $t0, 0($fp)					# get total moves we were allowed to execute
 	sub $v1, $t0, $s1				# subtract moves remaining from total moves (to get moves executed)
-
+	
+	beqz $v0, play_game_done			# if the game isn't finished -> we just return 0 in $v0
+	
+	move $v0, $t1					# else -> game is over and load winning player into $v0
 	j play_game_done
 	
 play_game_invalid_file:
@@ -1359,18 +1372,18 @@ load_next_byte:	# $a0 -> the initial file pointer to the top of the mancala		# i
 	
 	j load_next_byte_done
 	
-load_next_byte_single:				# if 4($sp) == '\n' -> we have < 10 stones in the mancala
+load_next_byte_single:					# if 4($sp) == '\n' -> we have < 10 stones in the mancala
 
 	lbu $v0, 4($sp)					# get the digit on the stack
 	addi $v0, $v0, -48				# subtract 48 to get the decimal / integer value of the character
 
-	# fall through to done
+	j load_next_byte_done				# go to done
 
 load_next_byte_error:
-	li $v0, -1				# if there's an error reading to a file -> then return -1
+	li $v0, -1					# if there's an error reading to a file -> then return -1
 	li $v1, -1
 	
-load_next_byte_done:	# $v0 -> the stones in the top, $v1 -> the new file pointer
+load_next_byte_done:					# $v0 -> the stones in the top, $v1 -> the new file pointer
 	
 	addi $sp, $sp, 8				# deallocate stack space used for reading characters from the file
 	
